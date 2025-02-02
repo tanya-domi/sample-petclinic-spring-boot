@@ -2,64 +2,57 @@ pipeline {
     agent any
   
       tools {
-        jfrog 'jfrog-cli'
+        maven 'maven3'
+        jdk "java17"
       }
 
     stages {
-        stage('snyk scan') {
-            steps {
-                snykSecurity(
-                    snykInstallation: 'snyk@latest',
-                    snykTokenId: 'snyk_api_token',
-                    monitorProjectOnBuild: false,
-                    failOnIssues: false,  // Use boolean for failOnIssues
-                    additionalArguments: '--json-file-output=all-vulnerabilities.json'
-                )
-            }
-        }
-
         stage('maven build artifact') {
             steps {
               // jf 'mvn-config --petclinic_artifact-libs-release --petclinic_artifact-libs-snapshot --petclinic_artifact-libs-release-local --petclinic_artifact-libs-snapshot-local'
-
-
-                 sh 'mvn clean package -DskipTests=true '  // Correct capitalization for -DskipTests
+                sh 'mvn clean package -DskipTests=true '  // Correct capitalization for -DskipTests
             }
         }
 
-        
+        stage('SonarQube Analysis') {
+          environment {
+            scannerHome = tool 'SonarQube-Scanner-6.2.1'
+            }
 
-
-
-
-
-       stage('TRIVY FS SCAN') {
             steps {
-                sh "trivy fs . > trivyfs.txt"
+                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+
+                    sh """
+                    /home/ubuntu/tools/hudson.plugins.sonar.SonarRunnerInstallation/SonarQube-Scanner-6.2.1/bin/sonar-scanner \
+                    -Dsonar.projectKey=petclinic-sprint-boot \
+                    -Dsonar.projectName='petclinic-sprint-boot' \
+                    -Dsonar.host.url=http://34.227.242.237:9000 \
+                    -Dsonar.token=${SONAR_TOKEN} \
+                    -Dsonar.sources=src/main/java/ \
+                    -Dsonar.java.binaries=target/classes \
+                    """
+                } 
             }
-        }
+    }
 
        stage('building a docker image') {
             steps {
-                sh "docker build -t deepak8934/petapp:${BUILD_NUMBER} ."
-            }
-        }
-
-       stage("TRIVY"){
-            steps{
-                sh "trivy image  deepak8934/petapp:${BUILD_NUMBER} --scanners vuln > trivyimage.txt" 
+                sh "docker build -t dts81/petclinic:${BUILD_NUMBER} ."
             }
         }
 
         stage('docker image push') {
             steps {
                 withDockerRegistry(credentialsId: 'dockercred', url: '') {
-                    sh "docker push deepak8934/petapp:${BUILD_NUMBER}"
+                    sh "docker push dts81/petclinic:${BUILD_NUMBER}"
                 }
             }
         }
 
-
+        tools {
+            jfrog 'jfrog-cli'
+      }
+    
         stage('Publish build info') {
             steps {
                 jf 'rt build-publish'
@@ -70,15 +63,8 @@ pipeline {
             steps {
               jf 'rt u /var/lib/jenkins/workspace/pipeline_part2/target/spring-petclinic-3.2.0-SNAPSHOT.jar  petclinic_artifact-libs-snapshot-local/springpetclinic/spring-petclinic-3.2.0-SNAPSHOT.jar'
 
-
             }
         }
-
-
-     
-
-
-
         
     }
 }
